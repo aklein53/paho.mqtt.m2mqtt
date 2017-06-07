@@ -189,7 +189,7 @@ namespace uPLibrary.Networking.M2Mqtt
         // connection is closing due to peer
         private bool isConnectionClosing;
 
-		private Dictionary<string, MqttMsgPublishEventHandler> subscribedEvents;
+		private Dictionary<string, List<MqttMsgPublishEventHandler>> subscribedEvents = new Dictionary<string, List<MqttMsgPublishEventHandler>>();
 
         /// <summary>
         /// Connection status between client and broker
@@ -799,21 +799,73 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <summary>
 		/// Subscribe for message topics
 		/// </summary>
-		/// <param name="topics">List of topics to subscribe</param>
-		/// <param name="qosLevels">QOS levels related to topics</param>
+		/// <param name="topic">List of topics to subscribe</param>
+		/// <param name="qosLevel">QOS levels related to topics</param>
+		/// <param name="handler">Event handler to fire for messages on this topic</param>
 		/// <returns>Message Id related to SUBSCRIBE message</returns>
 		public ushort Subscribe(string topic, byte qosLevel, MqttMsgPublishEventHandler handler)
 		{
-			MqttMsgSubscribe subscribe =
-				new MqttMsgSubscribe(new string[] { topic }, new byte[] { qosLevel });
-			subscribe.MessageId = this.GetMessageId();
+			if (this.subscribedEvents.ContainsKey(topic))
+			{
+				this.subscribedEvents[topic].Add(handler);
+			}
+			else
+			{
+				this.subscribedEvents.Add(topic, new List<MqttMsgPublishEventHandler>() { handler });
+			}
 
-			// enqueue subscribe request into the inflight queue
-			this.EnqueueInflight(subscribe, MqttMsgFlow.ToPublish);
+			return this.Subscribe(new string[] { topic }, new byte[] { qosLevel });
+		}
 
-			this.subscribedEvents.Add(topic, handler);
+		/// <summary>
+		/// Subscribe for message topics
+		/// </summary>
+		/// <param name="topics">List of topics to subscribe</param>
+		/// <param name="qosLevels">QOS levels related to topics</param>
+		/// <returns>Message Id related to SUBSCRIBE message</returns>
+		public ushort Subscribe(string[] topics, byte[] qosLevels, MqttMsgPublishEventHandler[] handlers)
+		{
+			for (int i = 0; i < topics.Length; i++)
+			{
+				if (this.subscribedEvents.ContainsKey(topics[i]))
+				{
+					this.subscribedEvents[topics[i]].Add(handlers[i]);
+				}
+				else
+				{
+					this.subscribedEvents.Add(topics[i], new List<MqttMsgPublishEventHandler>() { handlers[i] });
+				}
+			}
 
-			return subscribe.MessageId;
+			return this.Subscribe(topics,qosLevels);
+		}
+
+		/// <summary>
+		/// Removes all handlers from topic
+		/// </summary>
+		/// <param name="topic">Topic to unsubscribe</param>
+		/// <returns>Message Id in UNSUBACK message from broker</returns>
+		public ushort Unsubscribe(string topic)
+		{
+			return this.Unsubscribe(new string[] { topic });
+		}
+
+		/// <summary>
+		/// Removes single handler from topic
+		/// </summary>
+		/// <param name="topic">Topic to unsubscribe</param>
+		/// <param name="handler">Handler to remove from the subscription</param>
+		public void Unsubscribe(string topic, MqttMsgPublishEventHandler handler)
+		{
+			if (this.subscribedEvents.ContainsKey(topic))
+			{
+				this.subscribedEvents[topic].Remove(handler);
+
+				if (this.subscribedEvents.Count == 0)
+				{
+					this.Unsubscribe(topic);
+				}
+			}
 		}
 
 		/// <summary>
@@ -823,6 +875,14 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <returns>Message Id in UNSUBACK message from broker</returns>
 		public ushort Unsubscribe(string[] topics)
         {
+			foreach(string topic in topics)
+			{
+				if (subscribedEvents.ContainsKey(topic))
+				{
+					subscribedEvents.Remove(topic);
+				}
+			}
+
             MqttMsgUnsubscribe unsubscribe =
                 new MqttMsgUnsubscribe(topics);
             unsubscribe.MessageId = this.GetMessageId();
@@ -909,7 +969,10 @@ namespace uPLibrary.Networking.M2Mqtt
 
 			if (this.subscribedEvents.ContainsKey(publish.Topic))
 			{
-				this.subscribedEvents[publish.Topic].Invoke(this, new MqttMsgPublishEventArgs(publish.Topic, publish.Message, publish.DupFlag, publish.QosLevel, publish.Retain));
+				foreach (var handler in this.subscribedEvents[publish.Topic])
+				{
+					handler.Invoke(this, new MqttMsgPublishEventArgs(publish.Topic, publish.Message, publish.DupFlag, publish.QosLevel, publish.Retain));
+				}
 			}
         }
 
