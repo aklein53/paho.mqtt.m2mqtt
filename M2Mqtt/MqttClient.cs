@@ -899,7 +899,7 @@ namespace uPLibrary.Networking.M2Mqtt
 
 		private bool SubMatchesTopic(string sub, string topic)
 		{
-			Regex newRegex = new Regex(sub.Replace("+", "\\w+").Replace("#", "[\\w/]+"));
+			Regex newRegex = new Regex("^" + sub.Replace("+", "\\w+").Replace("#", "[\\w/]+") + "$");
 			return newRegex.IsMatch(topic);
 		}
 
