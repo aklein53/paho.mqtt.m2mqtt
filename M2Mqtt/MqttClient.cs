@@ -807,15 +807,17 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <returns>Message Id related to SUBSCRIBE message</returns>
 		public ushort Subscribe(string topic, byte qosLevel, MqttMsgPublishEventHandler handler)
 		{
-			if (this.subscribedEvents.ContainsKey(topic))
+			lock (this.subscribedEvents)
 			{
-				this.subscribedEvents[topic].Add(handler);
+				if (this.subscribedEvents.ContainsKey(topic))
+				{
+					this.subscribedEvents[topic].Add(handler);
+				}
+				else
+				{
+					this.subscribedEvents.Add(topic, new List<MqttMsgPublishEventHandler>() { handler });
+				}
 			}
-			else
-			{
-				this.subscribedEvents.Add(topic, new List<MqttMsgPublishEventHandler>() { handler });
-			}
-
 			return this.Subscribe(new string[] { topic }, new byte[] { qosLevel });
 		}
 
@@ -828,18 +830,20 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <returns>Message Id related to SUBSCRIBE message</returns>
 		public ushort Subscribe(string[] topics, byte[] qosLevels, MqttMsgPublishEventHandler[] handlers)
 		{
-			for (int i = 0; i < topics.Length; i++)
+			lock (this.subscribedEvents)
 			{
-				if (this.subscribedEvents.ContainsKey(topics[i]))
+				for (int i = 0; i < topics.Length; i++)
 				{
-					this.subscribedEvents[topics[i]].Add(handlers[i]);
-				}
-				else
-				{
-					this.subscribedEvents.Add(topics[i], new List<MqttMsgPublishEventHandler>() { handlers[i] });
+					if (this.subscribedEvents.ContainsKey(topics[i]))
+					{
+						this.subscribedEvents[topics[i]].Add(handlers[i]);
+					}
+					else
+					{
+						this.subscribedEvents.Add(topics[i], new List<MqttMsgPublishEventHandler>() { handlers[i] });
+					}
 				}
 			}
-
 			return this.Subscribe(topics,qosLevels);
 		}
 
@@ -860,13 +864,16 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <param name="handler">Handler to remove</param>
 		public void Unsubscribe(string topic, MqttMsgPublishEventHandler handler)
 		{
-			if (this.subscribedEvents.ContainsKey(topic))
+			lock (this.subscribedEvents)
 			{
-				this.subscribedEvents[topic].Remove(handler);
-
-				if (this.subscribedEvents.Count == 0)
+				if (this.subscribedEvents.ContainsKey(topic))
 				{
-					this.Unsubscribe(topic);
+					this.subscribedEvents[topic].Remove(handler);
+
+					if (this.subscribedEvents.Count == 0)
+					{
+						this.Unsubscribe(topic);
+					}
 				}
 			}
 		}
@@ -878,15 +885,17 @@ namespace uPLibrary.Networking.M2Mqtt
 		/// <returns>Message Id in UNSUBACK message from broker</returns>
 		public ushort Unsubscribe(string[] topics)
         {
-			// Remove all handlers for topic
-			foreach(string topic in topics)
+			lock (this.subscribedEvents)
 			{
-				if (subscribedEvents.ContainsKey(topic))
+				// Remove all handlers for topic
+				foreach (string topic in topics)
 				{
-					subscribedEvents.Remove(topic);
+					if (subscribedEvents.ContainsKey(topic))
+					{
+						subscribedEvents.Remove(topic);
+					}
 				}
 			}
-
             MqttMsgUnsubscribe unsubscribe =
                 new MqttMsgUnsubscribe(topics);
             unsubscribe.MessageId = this.GetMessageId();
@@ -977,13 +986,16 @@ namespace uPLibrary.Networking.M2Mqtt
                     new MqttMsgPublishEventArgs(publish.Topic, publish.Message, publish.DupFlag, publish.QosLevel, publish.Retain));
             }
 
-			foreach(string topic in this.subscribedEvents.Keys)
+			lock (this.subscribedEvents)
 			{
-				if (SubMatchesTopic(topic, publish.Topic))
+				foreach (string topic in this.subscribedEvents.Keys)
 				{
-					foreach (var handler in this.subscribedEvents[topic])
+					if (SubMatchesTopic(topic, publish.Topic))
 					{
-						handler.Invoke(this, new MqttMsgPublishEventArgs(publish.Topic, publish.Message, publish.DupFlag, publish.QosLevel, publish.Retain));
+						foreach (var handler in this.subscribedEvents[topic])
+						{
+							handler.Invoke(this, new MqttMsgPublishEventArgs(publish.Topic, publish.Message, publish.DupFlag, publish.QosLevel, publish.Retain));
+						}
 					}
 				}
 			}
